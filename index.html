@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pencil Campus Connected</title>
+    <style>
+        :root {
+            --bg-color: #f1f5f9; --primary: #0f172a; --accent: #2563eb;
+            --text: #334155; --border: #cbd5e1;
+            --dept-worship: #eff6ff; --dept-band: #fff7ed; --dept-ops: #f8fafc; --dept-youth: #f0fdf4;
+        }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg-color); color: var(--text); margin: 0; padding: 0; }
+        
+        /* Nav */
+        .nav-bar { background: var(--primary); padding: 15px; position: sticky; top: 0; z-index: 100; display: flex; gap: 10px; overflow-x: auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .nav-btn { background: rgba(255,255,255,0.1); color: #94a3b8; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: 0.2s; }
+        .nav-btn.active { background: var(--accent); color: white; }
+        
+        /* Container */
+        .container { max-width: 1000px; margin: 20px auto; padding: 0 15px; padding-bottom: 80px; }
+        
+        .loading-indicator { text-align: center; padding: 20px; color: var(--accent); font-weight: bold; }
+        
+        /* Stats */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+        .stat-card h3 { margin: 0; font-size: 1.5rem; color: var(--primary); }
+        .stat-card p { margin: 5px 0 0; font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: bold; }
+
+        /* Tables */
+        .dept-section { background: white; border-radius: 10px; margin-bottom: 20px; overflow: hidden; border: 1px solid var(--border); }
+        .dept-header { padding: 10px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+        .bg-worship { background: var(--dept-worship); color: #1e3a8a; }
+        .bg-band { background: var(--dept-band); color: #9a3412; }
+        .bg-ops { background: var(--dept-ops); color: #334155; }
+        .bg-youth { background: var(--dept-youth); color: #166534; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; background: #f8fafc; padding: 10px; color: #64748b; font-size: 0.7rem; text-transform: uppercase; }
+        td { padding: 10px; border-bottom: 1px solid #f1f5f9; }
+        
+        /* Inputs */
+        input[type="text"] { width: 100%; border: 1px solid transparent; background: transparent; padding: 4px; border-radius: 4px; font-size: 0.9rem; }
+        input[type="text"]:focus { background: white; border-color: var(--accent); outline: none; }
+        input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
+        select { border: none; background: transparent; font-size: 0.75rem; color: #64748b; width: 100%; }
+
+        /* Buttons */
+        .btn-add { width: 100%; padding: 12px; background: none; border: none; color: #64748b; font-weight: 600; cursor: pointer; }
+        .btn-add:hover { background: #f8fafc; color: var(--accent); }
+        .delete-btn { color: #cbd5e1; background: none; border: none; font-size: 1.2rem; cursor: pointer; }
+        .delete-btn:hover { color: #ef4444; }
+
+        /* Status */
+        #save-status { position: fixed; bottom: 20px; right: 20px; background: #22c55e; color: white; padding: 8px 16px; border-radius: 20px; font-size: 0.8rem; opacity: 0; transition: opacity 0.5s; box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: none; }
+        .empty-msg { text-align: center; padding: 40px; color: #94a3b8; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div class="nav-bar">
+    <button class="nav-btn active" onclick="switchView('global')">📊 Global Overview</button>
+    <button class="nav-btn" onclick="switchView('Yonkers')">Yonkers</button>
+    <button class="nav-btn" onclick="switchView('North')">North</button>
+    <button class="nav-btn" onclick="switchView('Benson')">Benson</button>
+</div>
+
+<div id="loading" class="loading-indicator">Syncing with Database...</div>
+<div class="container" id="app-content"></div>
+<div id="save-status">Saved</div>
+
+<!-- FIREBASE SETUP -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // --- YOUR SPECIFIC CONFIG ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyDwyrcYXHUf2msGlR7rwggNtVUkOcotkww",
+        authDomain: "ca-multitrack-manager.firebaseapp.com",
+        projectId: "ca-multitrack-manager",
+        storageBucket: "ca-multitrack-manager.firebasestorage.app",
+        messagingSenderId: "931673458178",
+        appId: "1:931673458178:web:b70253bcdecbe88f4b891b"
+    };
+
+    // Initialize
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const rosterCol = collection(db, 'roster');
+
+    // --- STATE ---
+    let roster = [];
+    let currentView = 'global';
+    const prices = { mix: 1.29, share: 1.99, pro: 5.99, prem: 9.99, overhead: 197.00 };
+    const roles = ["Pastor/Director", "Coach", "Leader", "Apprentice", "Team Member"];
+
+    // --- REALTIME LISTENER ---
+    const loadingEl = document.getElementById('loading');
+    
+    // This listens for updates from ANYONE using the app
+    onSnapshot(rosterCol, (snapshot) => {
+        roster = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        loadingEl.style.display = 'none';
+        render(); 
+    }, (error) => {
+        loadingEl.textContent = "Error: Check Firestore Rules or Internet Connection";
+        console.error(error);
+    });
+
+    // --- RENDER LOGIC ---
+    window.switchView = (viewName) => {
+        currentView = viewName;
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.textContent.includes(viewName) || (viewName === 'global' && btn.textContent.includes('Global')));
+        });
+        render();
+    }
+
+    function render() {
+        const container = document.getElementById('app-content');
+        container.innerHTML = '';
+        if (currentView === 'global') renderGlobalDashboard(container);
+        else renderCampusView(container, currentView);
+    }
+
+    function renderGlobalDashboard(container) {
+        let counts = { mix: 0, share: 0, pro: 0, prem: 0 };
+        roster.forEach(p => {
+            if(p.mix) counts.mix++; if(p.share) counts.share++; if(p.pro) counts.pro++; if(p.prem) counts.prem++;
+        });
+        const total = (counts.mix * prices.mix) + (counts.share * prices.share) + (counts.pro * prices.pro) + (counts.prem * prices.prem) + prices.overhead;
+
+        container.innerHTML = `
+            <div class="stats-grid">
+                <div class="stat-card"><h3>$${total.toFixed(2)}</h3><p>Monthly Invoice</p></div>
+                <div class="stat-card"><h3>${roster.length}</h3><p>Total People</p></div>
+                <div class="stat-card"><h3>$${(total*12).toLocaleString(undefined,{maximumFractionDigits:0})}</h3><p>Annual Run Rate</p></div>
+            </div>
+            
+             <div class="dept-section" style="padding:20px;">
+                <h3 style="margin-top:0;">Organization Audit</h3>
+                <div style="font-size: 0.9rem; line-height: 1.6;">
+                    <div><strong>RehearsalMix:</strong> ${counts.mix} Seats ($${(counts.mix * prices.mix).toFixed(2)})</div>
+                    <div><strong>Team Sharing:</strong> ${counts.share} Seats ($${(counts.share * prices.share).toFixed(2)})</div>
+                    <div><strong>Playback Pro:</strong> ${counts.pro} Seats ($${(counts.pro * prices.pro).toFixed(2)})</div>
+                    <div><strong>Playback Prem:</strong> ${counts.prem} Seats ($${(counts.prem * prices.prem).toFixed(2)})</div>
+                    <hr style="border: 0; border-top: 1px solid #eee; margin: 10px 0;">
+                    <div style="color: #64748b;"><strong>Base Overhead:</strong> $${prices.overhead.toFixed(2)}</div>
+                </div>
+            </div>
+            ${roster.length === 0 ? '<div class="empty-msg">No data found. Switch to a Campus tab to add people!</div>' : ''}
+        `;
+    }
+
+    function renderCampusView(container, campusName) {
+        const campusPeople = roster.filter(p => p.campus === campusName);
+        let campusTotal = campusPeople.reduce((acc, p) => {
+            return acc + (p.mix?prices.mix:0) + (p.share?prices.share:0) + (p.pro?prices.pro:0) + (p.prem?prices.prem:0);
+        }, 0);
+
+        container.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="margin:0;">${campusName} Campus</h2>
+                <div style="text-align:right;"><div style="font-size:1.5rem; font-weight:bold; color:var(--accent);">$${campusTotal.toFixed(2)}</div><div style="font-size:0.7rem;color:#64748b">MONTHLY</div></div>
+            </div>
+        `;
+
+        renderDeptTable(container, campusName, 'Worship', 'bg-worship');
+        renderDeptTable(container, campusName, 'Band', 'bg-band');
+        renderDeptTable(container, campusName, 'Production', 'bg-ops');
+        renderDeptTable(container, campusName, 'Youth', 'bg-youth');
+    }
+
+    function renderDeptTable(container, campus, dept, colorClass) {
+        const people = roster.filter(p => p.campus === campus && p.dept === dept);
+        const section = document.createElement('div');
+        section.className = 'dept-section';
+        
+        let html = `
+            <div class="dept-header ${colorClass}"><span>${dept} Team</span></div>
+            <table><thead><tr><th style="width:30%">Name</th><th style="width:25%">Role/Super</th><th style="text-align:center">Mix</th><th style="text-align:center">Share</th><th style="text-align:center">Pro</th><th style="text-align:center">Prem</th><th style="text-align:right">Cost</th><th></th></tr></thead><tbody>
+        `;
+
+        people.forEach(p => {
+            const rowCost = (p.mix?prices.mix:0) + (p.share?prices.share:0) + (p.pro?prices.pro:0) + (p.prem?prices.prem:0);
+            html += `
+                <tr>
+                    <td><input type="text" value="${p.name}" onchange="updateDB('${p.id}', {name: this.value})"></td>
+                    <td>
+                        <select onchange="updateDB('${p.id}', {role: this.value})">${roles.map(r => `<option ${p.role===r?'selected':''}>${r}</option>`).join('')}</select>
+                        <input type="text" value="${p.supervisor}" placeholder="Supervisor" onchange="updateDB('${p.id}', {supervisor: this.value})">
+                    </td>
+                    <td align="center"><input type="checkbox" ${p.mix?'checked':''} onchange="updateDB('${p.id}', {mix: this.checked})"></td>
+                    <td align="center"><input type="checkbox" ${p.share?'checked':''} onchange="updateDB('${p.id}', {share: this.checked})"></td>
+                    <td align="center"><input type="checkbox" ${p.pro?'checked':''} onchange="updateDB('${p.id}', {pro: this.checked})"></td>
+                    <td align="center"><input type="checkbox" ${p.prem?'checked':''} onchange="updateDB('${p.id}', {prem: this.checked})"></td>
+                    <td align="right" style="font-family:monospace">$${rowCost.toFixed(2)}</td>
+                    <td><button class="delete-btn" onclick="deleteFromDB('${p.id}')">&times;</button></td>
+                </tr>
+            `;
+        });
+
+        html += `</tbody></table><button class="btn-add" onclick="addToDB('${campus}', '${dept}')">+ Add Member</button>`;
+        section.innerHTML = html;
+        container.appendChild(section);
+    }
+
+    // --- DATABASE ACTIONS ---
+    window.updateDB = async (id, data) => {
+        showSave();
+        await updateDoc(doc(db, "roster", id), data);
+    }
+
+    window.addToDB = async (campus, dept) => {
+        showSave();
+        await addDoc(rosterCol, {
+            campus, dept, name: "New Person", role: "Team Member", supervisor: "",
+            mix: true, share: false, pro: false, prem: false
+        });
+    }
+
+    window.deleteFromDB = async (id) => {
+        if(confirm('Remove person?')) {
+            showSave();
+            await deleteDoc(doc(db, "roster", id));
+        }
+    }
+
+    function showSave() {
+        const el = document.getElementById('save-status');
+        el.style.opacity = '1';
+        setTimeout(() => el.style.opacity = '0', 2000);
+    }
+</script>
+</body>
+</html>
